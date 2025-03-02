@@ -1,0 +1,115 @@
+services:
+    sql-server-db:
+      container_name: mssqlserver
+      image: mcr.microsoft.com/mssql/server:2019-latest
+      ports: 
+        - 1433:1433
+      environment:
+        SA_PASSWORD: ${SQLSERVER_PASSWORD}
+        ACCEPT_EULA: "Y"
+        MSSQL_PID: Developer
+        MSSQL_AGENT_ENABLED: True
+      volumes:
+        - ".mssql:/var/mssql"
+      networks:
+        - kafka-network
+
+    zookeeper:
+      image: confluentinc/cp-zookeeper:7.3.0
+      container_name: zookeeper
+      ports:
+        - "2181:2181"
+      environment:
+        ZOOKEEPER_CLIENT_PORT: 2181
+        ZOOKEEPER_TICK_TIME: 2000
+        ALLOW_ANONYMOUS_LOGIN: yes
+      volumes:
+        - ".zookeeper_data:/bitnami/confluent"
+      networks:
+        - kafka-network
+
+    kafka1:
+      image: confluentinc/cp-kafka:7.2.2
+      container_name: kafka1
+      ports: 
+        - 9091:9091
+      environment:
+        KAFKA_ADVERTISED_LISTENERS: LISTENER_DOCKER_INTERNAL://kafka1:19093, LISTENER_DOCKER_EXTERNAL://${DOCKER_HOST_IP:-127.0.0.1}:9091
+        KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: LISTENER_DOCKER_INTERNAL:PLAINTEXT, LISTENER_DOCKER_EXTERNAL:PLAINTEXT
+        KAFKA_INTER_BROKER_LISTENER_NAME: LISTENER_DOCKER_INTERNAL
+        KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+        KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
+        KAFKA_BROKER_ID: 1
+        KAFKA_OFFSETS_REPLICATION_FACTOR: 1
+        KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+        # KAFKA_ADVERTISED_HOST_NAME: kafka1
+      volumes:
+        - ./data/kafka1/data:/var/lib/kafka/data
+      depends_on:
+        - zookeeper
+      networks:
+        - kafka-network
+    
+    kafka-connect: 
+      image: dbz-sql-conn
+      container_name: kafka-connect
+      hostname: kafka-connect
+      environment:
+        CONNECT_BOOTSTRAP_SERVERS: kafka1:19093
+        CONNECT_GROUP_ID: kafconn3x
+        CONNECT_CONFIG_STORAGE_TOPIC: kafconn3x-config 
+        CONNECT_OFFSET_STORAGE_TOPIC: kafconn3x-offsets
+        CONNECT_STATUS_STORAGE_TOPIC: kafconn3x-status
+        CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+        CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+        CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+        CONNECT_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+        CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: false
+        CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+        CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: false
+        CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+        CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+        CONNECT_REST_ADVERTISED_HOST_NAME: localhost
+        CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components
+      ports:
+        - 8083:8083
+        - 9099:19092
+      depends_on:
+        - kafka1
+        - zookeeper
+      networks:
+        - kafka-network
+
+    redpanda-console:
+      # image: docker.redpanda.com/vectorized/console:latest
+      image: redpandadata/console:latest
+      container_name: redpanda-console
+      entrypoint: /bin/sh
+      command: -c "echo \"$$CONSOLE_CONFIG_FILE\" > /tmp/config.yml; /app/console"
+      environment:
+        CONFIG_FILEPATH: /tmp/config.yml
+        CONSOLE_CONFIG_FILE: |
+          kafka:
+            brokers: ["kafka1:19093"]
+            schemaRegistry:
+              enabled: false
+          redpanda:
+            adminApi:
+              enabled: false
+          connect:
+            enabled: true 
+            clusters:
+              - name: kafka-connect
+                url: http://kafka-connect:8083
+      ports: 
+        - 8080:8080
+      depends_on:
+        - kafka1
+        - kafka-connect
+      networks:
+        - kafka-network
+
+
+networks:
+  kafka-network:
+    driver: bridge
