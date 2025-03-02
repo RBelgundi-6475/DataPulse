@@ -1,0 +1,16 @@
+curl -i -X POST -H "Accept:application/json" -H "Content-Type:application/json" localhost:8083/connectors -d '{ "name": "test-connector",
+"config": {
+"connector.class": "io.debezium.connector.sqlserver.SqlServerConnector","database.hostname": "mssqlserver",
+"database.port": "1433",
+"database.user": "sa",
+"database.password": ${SQLSERVER_PASSWORD},
+"database.names": "Test_DB",
+"database.server.name": "127.0.0.1",
+"table.whitelist": "dbo.employee",
+"database.history.kafka.bootstrap.servers": "kafka1:19093",
+"database.history.kafka.topic": "dbhistory.fulfillment",
+"topic.prefix": "test-conn",
+"database.encrypt": "false",
+"schema.history.internal.kafka.bootstrap.servers": "kafka1:19093",
+"schema.history.internal.kafka.topic": "dbhistory.schema"}
+}';
